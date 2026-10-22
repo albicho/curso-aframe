@@ -78,6 +78,34 @@
     var alvo = document.getElementById('alvo');
     alvo.addEventListener('targetFound', function () { estado.textContent = '✔ Alvo encontrado'; });
     alvo.addEventListener('targetLost',  function () { estado.textContent = 'Aponte para a imagem-alvo do curso'; });
+
+    // --- Diagnóstico da câmera -------------------------------------------------
+    // Se o navegador negar a câmera, o MindAR só avisa pelo evento "arError" e a
+    // animação de carregamento continuaria girando para sempre. Aqui mostramos o motivo.
+    var cena = document.querySelector('a-scene');
+    var pronto = false;
+    function avisar(msg) {
+      var carregando = document.querySelector('.mindar-ui-loading');
+      if (carregando) carregando.classList.add('hidden');
+      estado.innerHTML = msg;
+      estado.style.background = '#B91C1C';
+      estado.style.borderRadius = '14px';
+      estado.style.maxWidth = '90vw';
+      estado.style.textAlign = 'center';
+    }
+    cena.addEventListener('arReady', function () {
+      pronto = true;
+      estado.style.background = '';
+      estado.textContent = 'Câmera pronta: aponte para a imagem-alvo do curso';
+    });
+    cena.addEventListener('arError', function () {
+      avisar('Não foi possível abrir a câmera.<br>Permita o acesso à câmera nas configurações deste site, ' +
+             'feche outros apps que usam a câmera e recarregue a página.');
+    });
+    setTimeout(function () {
+      if (!pronto) avisar('Ainda carregando… Se o navegador não pediu permissão da câmera, ' +
+                          'abra esta página no Chrome ou no Safari (não dentro do WhatsApp/Instagram) e recarregue.');
+    }, 25000);
   </script>
 </body>
 </html>
