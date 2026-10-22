@@ -1,4 +1,4 @@
-# Curso A-Frame — Realidade Virtual e Aumentada na Web
+# Curso A-Frame: Prototipagem rápida de Realidade Virtual e Aumentada com A-Frame
 
 Material prático de um curso de **3 horas** sobre [A-Frame](https://aframe.io) 1.8 para criar ambientes de
 **Realidade Virtual (RV)** e **Realidade Aumentada (RA)** que rodam no navegador — no PC, no celular e em óculos
