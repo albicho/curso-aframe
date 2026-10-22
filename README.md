@@ -4,7 +4,7 @@ Material prático de um curso de **3 horas** sobre [A-Frame](https://aframe.io) 
 **Realidade Virtual (RV)** e **Realidade Aumentada (RA)** que rodam no navegador — no PC, no celular e em óculos
 como o Meta Quest — publicados de graça no **GitHub Pages** de cada participante.
 
-> Abra o site publicado (`https://albicho.github.io/curso-aframe/`) para ver o índice com todos os exemplos,
+> Abra o site publicado (`https://SEU-USUARIO.github.io/curso-aframe/`) para ver o índice com todos os exemplos,
 > exercícios e QR codes para abrir no celular.
 
 ---
