@@ -17,6 +17,20 @@
   Misturar versões é a causa nº 1 de "tela preta" em projetos de RA.
 
   Unidades: 1 unidade = 1 lado do marcador. O conteúdo fica "em pé" sobre ele (eixo Y).
+
+  ------------------------------------------------------------
+  NOTAS DESTA VERSÃO COMENTADA (o código é o mesmo do original)
+  ------------------------------------------------------------
+  • Como funciona: o AR.js lê o vídeo da câmera, procura um quadrado preto com borda
+    grossa, descobre posição e rotação dele em 3D e aplica essa pose na <a-marker>.
+    Tudo que está DENTRO da <a-marker> aparece "preso" ao marcador e some quando ele
+    sai da vista.
+  • Diferente do exemplo 07 (câmera livre) e do 08 (WebXR): aqui a câmera virtual
+    fica parada e quem "se move" é o marcador.
+  • Dicas para o marcador funcionar bem: boa iluminação, marcador plano e inteiro na
+    imagem, sem reflexos, impresso com contraste (preto sobre branco).
+  • Marcador "pattern" (.patt) é um padrão personalizado: você gera a imagem e o
+    arquivo .patt no gerador oficial do AR.js (AR.js Marker Training).
   ============================================================
 -->
 <html lang="pt-BR">
@@ -24,13 +38,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>09 · RA com marcador (AR.js) — Curso A-Frame</title>
+  <!-- A-Frame 1.6.0: versão compatível com o AR.js 3.4.x (NÃO use a 1.8.0 aqui) -->
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <!-- Versão do AR.js "marker + location" (sem NFT, mais leve) -->
+  <!-- Depois de carregado, registra os componentes arjs, a-marker, etc. -->
   <script src="https://cdn.jsdelivr.net/npm/@ar-js-org/ar.js@3.4.8/aframe/build/aframe-ar.js"></script>
   <style>
+    /* overflow: hidden evita barras de rolagem, pois o vídeo da câmera ocupa a tela toda */
     body { margin: 0; overflow: hidden; }
     .voltar { position: fixed; top: 12px; left: 12px; z-index: 10; font: 600 14px system-ui, sans-serif;
               background: rgba(17,24,39,.85); color: #fff; padding: 8px 12px; border-radius: 8px; text-decoration: none; }
+    /* Faixa de estado na parte de baixo; o texto muda quando o marcador é achado ou perdido */
     #estado { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
               font: 600 15px system-ui, sans-serif; background: rgba(15,23,42,.85); color: #fff;
               padding: 10px 16px; border-radius: 999px; }
@@ -40,41 +58,82 @@
   <a class="voltar" href="../../index.html">← Índice do curso</a>
   <div id="estado">Aponte a câmera para um marcador</div>
 
+  <!--
+    Componentes da cena:
+
+    • embedded
+        A cena não ocupa a página inteira por conta própria; o AR.js a ajusta ao vídeo da câmera.
+    • arjs="sourceType: webcam; debugUIEnabled: false; trackingMethod: best"
+        Configura o AR.js.
+          - sourceType: de onde vem a imagem (webcam | image | video).
+          - debugUIEnabled: false esconde a interface de depuração do AR.js.
+          - trackingMethod: método de rastreamento. "best" escolhe o melhor para o caso
+            (opções: best, area, color, ...).
+        Outros parâmetros: detectionMode, matrixCodeType, patternRatio, cameraParametersUrl,
+        maxDetectionRate, sourceWidth/sourceHeight, displayWidth/displayHeight, canvasWidth/canvasHeight.
+    • xr-mode-ui="enabled: false"
+        Esconde o botão de entrar em VR/AR do A-Frame: aqui não há sessão WebXR.
+    • renderer="logarithmicDepthBuffer: true; precision: medium"
+        logarithmicDepthBuffer melhora a profundidade com objetos perto/longe da câmera (menos "piscadas").
+        precision: medium usa precisão menor nos shaders, mais leve em celulares.
+    • gltf-model="dracoDecoderPath: ..."
+        Configuração de CARREGAMENTO de modelos glTF: informa onde está o decodificador Draco,
+        usado quando o .glb está comprimido com Draco (modelos menores).
+  -->
   <a-scene embedded
            arjs="sourceType: webcam; debugUIEnabled: false; trackingMethod: best"
            xr-mode-ui="enabled: false"
            renderer="logarithmicDepthBuffer: true; precision: medium"
            gltf-model="dracoDecoderPath: https://www.gstatic.com/draco/versioned/decoders/1.5.6/">
 
+    <!-- timeout alto (30 s): conexões móveis podem demorar a baixar os modelos -->
     <a-assets timeout="30000">
       <a-asset-item id="astronauta"  src="../../assets/modelos/astronauta.glb"></a-asset-item>
       <a-asset-item id="acoplamento" src="../../assets/modelos/acoplamento.glb"></a-asset-item>
     </a-assets>
 
+    <!--
+      <a-marker>: região do espaço presa ao marcador. Parâmetros:
+        - preset: marcador embutido ("hiro" ou "kanji").
+        - type: "pattern" (usa um .patt), "barcode" (código de barras de matriz) ou "unknown".
+        - url: caminho do arquivo .patt (para type="pattern").
+        - smooth / smoothCount / smoothTolerance / smoothThreshold: suavização — a pose é
+          uma média dos últimos N quadros, reduzindo o tremor (smoothCount = quantos quadros).
+        - size: lado do marcador (padrão 1).
+      Eventos: markerFound (apareceu) e markerLost (sumiu) — usados no script lá embaixo.
+    -->
     <!-- Marcador 1: o clássico "Hiro" (já embutido no AR.js) -->
     <a-marker id="m-hiro" preset="hiro" smooth="true" smoothCount="5">
-      <!-- 74 unidades × 0,015 ≈ 1,1 lado de marcador de altura -->
+      <!-- 74 unidades × 0,015 ≈ 1,1 lado de marcador de altura.
+           position y = 0.56 (metade da altura) apoia o modelo sobre o marcador. -->
       <a-entity gltf-model="#astronauta" scale="0.015 0.015 0.015" position="0 0.56 0"></a-entity>
     </a-marker>
 
     <!-- Marcador 2: padrão personalizado (.patt) gerado para o curso -->
     <a-marker id="m-curso" type="pattern" url="../../assets/marcadores/marcador-curso.patt" smooth="true" smoothCount="5">
-      <!-- peça CAD em mm: 120 mm × 0,006 ≈ 0,72 lado de marcador -->
+      <!-- peça CAD em mm: 120 mm × 0,006 ≈ 0,72 lado de marcador.
+           animation: gira 360° em 8 s, sem parar, para destacar o objeto. -->
       <a-entity gltf-model="#acoplamento" scale="0.006 0.006 0.006" position="0 0.33 0"
                 animation="property: rotation; to: 0 360 0; loop: true; dur: 8000; easing: linear"></a-entity>
     </a-marker>
 
+    <!-- Luzes: hemisférica (iluminação geral, tipo "céu/chão") e direcional (tipo "sol").
+         Sem luz, os modelos com material padrão ficam escuros. -->
     <a-entity light="type: hemisphere; intensity: 1.2"></a-entity>
     <a-entity light="type: directional; intensity: 1.5" position="1 2 1"></a-entity>
 
-    <!-- A câmera do AR.js: uma câmera "pura", sem look-controls -->
+    <!-- A câmera do AR.js: uma câmera "pura", sem look-controls.
+         O AR.js a controla (a imagem real vem do vídeo); girá-la com o mouse quebraria o alinhamento. -->
     <a-entity camera></a-entity>
   </a-scene>
 
   <script>
     // Eventos do AR.js: markerFound / markerLost
+    // Mostra na faixa inferior qual marcador está sendo visto.
     var estado = document.getElementById('estado');
+    // Tabela: id do marcador → texto exibido quando ele é encontrado
     var nomes = { 'm-hiro': 'Hiro → astronauta', 'm-curso': 'Marcador do curso → peça CAD' };
+    // Para cada marcador, registra os dois eventos
     Object.keys(nomes).forEach(function (id) {
       var m = document.getElementById(id);
       m.addEventListener('markerFound', function () { estado.textContent = '✔ ' + nomes[id]; });
