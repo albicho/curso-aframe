@@ -17,6 +17,19 @@
 
   ATENÇÃO À VERSÃO: o MindAR 1.2.5 é documentado com o A-Frame 1.5.0.
   Unidades: 1 unidade = LARGURA da imagem-alvo. O plano da imagem é XY (Z sai da imagem).
+
+  ------------------------------------------------------------
+  NOTAS DESTA VERSÃO COMENTADA (o código é o mesmo do original)
+  ------------------------------------------------------------
+  • Diferença para o exemplo 09: lá o alvo é um quadrado preto e branco (AR.js);
+    aqui é uma IMAGEM comum. O arquivo .mind guarda os "pontos de interesse" da imagem,
+    calculados antes (na compilação), para o reconhecimento ser rápido no celular.
+  • Eixos do alvo: X = direita, Y = para cima (na imagem), Z = SAINDO da imagem
+    em direção ao usuário. Por isso, modelos "em pé" (cujo eixo Y é a altura) precisam
+    ser girados 90° em X: o que era "para cima" passa a "sair da imagem".
+  • A câmera fica parada na origem; quem se move é o alvo detectado.
+  • Como a imagem tem proporção 1 × 0,7, a moldura azul usa width="1" height="0.7".
+  • Dicas: boa luz, imagem inteira visível e impressa sem brilho (papel fosco).
   ============================================================
 -->
 <html lang="pt-BR">
@@ -24,12 +37,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>10 · RA por imagem (MindAR) — Curso A-Frame</title>
+  <!-- A-Frame 1.5.0: a versão com a qual o MindAR 1.2.5 é documentado -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <!-- MindAR para A-Frame: registra os componentes mindar-image e mindar-image-target -->
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
     body { margin: 0; }
     .voltar { position: fixed; top: 12px; left: 12px; z-index: 10; font: 600 14px system-ui, sans-serif;
               background: rgba(17,24,39,.85); color: #fff; padding: 8px 12px; border-radius: 8px; text-decoration: none; }
+    /* Faixa de estado inferior; o texto muda quando o alvo é encontrado ou perdido */
     #estado { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 10;
               font: 600 15px system-ui, sans-serif; background: rgba(15,23,42,.85); color: #fff;
               padding: 10px 16px; border-radius: 999px; }
@@ -39,73 +55,80 @@
   <a class="voltar" href="../../index.html">← Índice do curso</a>
   <div id="estado">Aponte para a imagem-alvo do curso</div>
 
+  <!--
+    Componentes da cena:
+
+    • mindar-image="imageTargetSrc: ...; uiScanning: yes; uiLoading: yes"
+        Liga o MindAR e a câmera.
+          - imageTargetSrc: arquivo .mind (alvos compilados).
+          - uiScanning: mostra a animação de "procurando alvo" (yes/no, ou um seletor para uma UI própria).
+          - uiLoading: mostra a tela de carregamento (yes/no, ou um seletor).
+          - uiError: mensagem de erro, se a câmera não puder abrir (yes/no ou seletor).
+        Outros parâmetros: maxTrack (quantos alvos ao mesmo tempo; padrão 1), autoStart,
+        showStats, filterMinCF e filterBeta (suavização do rastreamento),
+        missTolerance (quadros sem ver o alvo antes de dar como perdido) e
+        warmupTolerance (quadros vistos antes de dar como encontrado).
+    • color-space="sRGB"
+        Mantém as cores corretas (espaço sRGB) ao renderizar sobre o vídeo da câmera.
+    • renderer="colorManagement: true; physicallyCorrectLights: true"
+        Gerência de cor e iluminação fisicamente correta, para os modelos glTF parecerem fiéis.
+        (Parâmetros desta versão 1.5.0 do A-Frame; versões mais novas mudam isso.)
+    • xr-mode-ui="enabled: false"
+        Esconde os botões de VR/AR do A-Frame: aqui não há sessão WebXR.
+    • device-orientation-permission-ui="enabled: false"
+        Esconde o pedido de permissão do giroscópio (iOS), que não é usado nesta RA.
+    • gltf-model="dracoDecoderPath: ..."
+        Informa o decodificador Draco, para carregar .glb comprimidos com Draco.
+  -->
   <a-scene mindar-image="imageTargetSrc: ../../assets/marcadores/alvo-curso.mind; uiScanning: yes; uiLoading: yes"
            color-space="sRGB" renderer="colorManagement: true; physicallyCorrectLights: true"
            xr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false"
            gltf-model="dracoDecoderPath: https://www.gstatic.com/draco/versioned/decoders/1.5.6/">
 
+    <!-- timeout alto (30 s) para conexões móveis lentas -->
     <a-assets timeout="30000">
       <a-asset-item id="acoplamento" src="../../assets/modelos/acoplamento.glb"></a-asset-item>
       <a-asset-item id="lanterna"    src="../../assets/modelos/lanterna.glb"></a-asset-item>
     </a-assets>
 
-    <!-- Câmera fixa: quem "se move" é o alvo detectado -->
+    <!-- Câmera fixa: quem "se move" é o alvo detectado.
+         look-controls desligado: girar a câmera com o dedo/giroscópio desalinharia o conteúdo da imagem real. -->
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- targetIndex: 0 → primeira imagem do arquivo .mind (um .mind pode ter várias) -->
+    <!-- targetIndex: 0 → primeira imagem do arquivo .mind (um .mind pode ter várias).
+         Tudo dentro desta entidade fica preso à imagem; aparece ao achar o alvo e some ao perdê-lo.
+         Eventos: targetFound e targetLost (usados no script abaixo). -->
     <a-entity id="alvo" mindar-image-target="targetIndex: 0">
-      <!-- Moldura semitransparente do tamanho da imagem (1 × 0,7) -->
+      <!-- Moldura semitransparente do tamanho da imagem (1 × 0,7).
+           Ajuda a ver se o rastreamento está alinhado à imagem real. -->
       <a-plane width="1" height="0.7" position="0 0 0" material="color: #0EA5E9; opacity: 0.25; transparent: true"></a-plane>
 
-      <!-- Peça CAD "em pé" sobre a imagem: giramos 90° em X para o eixo Y do modelo sair da imagem -->
+      <!-- Peça CAD "em pé" sobre a imagem: giramos 90° em X para o eixo Y do modelo sair da imagem.
+           O grupo externo é girado; o modelo dentro dele gira em torno do próprio eixo Y (animation).
+           position x = -0.22 coloca a peça à esquerda; y = 0.165 sobe metade da altura do modelo escalado. -->
       <a-entity rotation="90 0 0" position="-0.22 0 0">
         <a-entity gltf-model="#acoplamento" scale="0.003 0.003 0.003" position="0 0.165 0"
                   animation="property: rotation; to: 0 360 0; loop: true; dur: 8000; easing: linear"></a-entity>
       </a-entity>
 
-      <!-- Lanterna ao lado (mesmo truque: rotation 90° em X) -->
+      <!-- Lanterna ao lado (mesmo truque: rotation 90° em X).
+           x = 0.22 coloca à direita; rotation Y = -30 gira o modelo para ficar de lado. -->
       <a-entity rotation="90 0 0" position="0.22 -0.12 0">
         <a-entity gltf-model="#lanterna" scale="0.014 0.014 0.014" rotation="0 -30 0"></a-entity>
       </a-entity>
     </a-entity>
 
+    <!-- Luzes: hemisférica (geral) e direcional (sol). Sem luz, os modelos ficam escuros. -->
     <a-entity light="type: hemisphere; intensity: 1.5"></a-entity>
     <a-entity light="type: directional; intensity: 2" position="0 1 1"></a-entity>
   </a-scene>
 
   <script>
+    // Atualiza a faixa de estado quando o MindAR encontra ou perde a imagem-alvo.
     var estado = document.getElementById('estado');
     var alvo = document.getElementById('alvo');
     alvo.addEventListener('targetFound', function () { estado.textContent = '✔ Alvo encontrado'; });
     alvo.addEventListener('targetLost',  function () { estado.textContent = 'Aponte para a imagem-alvo do curso'; });
-
-    // --- Diagnóstico da câmera -------------------------------------------------
-    // Se o navegador negar a câmera, o MindAR só avisa pelo evento "arError" e a
-    // animação de carregamento continuaria girando para sempre. Aqui mostramos o motivo.
-    var cena = document.querySelector('a-scene');
-    var pronto = false;
-    function avisar(msg) {
-      var carregando = document.querySelector('.mindar-ui-loading');
-      if (carregando) carregando.classList.add('hidden');
-      estado.innerHTML = msg;
-      estado.style.background = '#B91C1C';
-      estado.style.borderRadius = '14px';
-      estado.style.maxWidth = '90vw';
-      estado.style.textAlign = 'center';
-    }
-    cena.addEventListener('arReady', function () {
-      pronto = true;
-      estado.style.background = '';
-      estado.textContent = 'Câmera pronta: aponte para a imagem-alvo do curso';
-    });
-    cena.addEventListener('arError', function () {
-      avisar('Não foi possível abrir a câmera.<br>Permita o acesso à câmera nas configurações deste site, ' +
-             'feche outros apps que usam a câmera e recarregue a página.');
-    });
-    setTimeout(function () {
-      if (!pronto) avisar('Ainda carregando… Se o navegador não pediu permissão da câmera, ' +
-                          'abra esta página no Chrome ou no Safari (não dentro do WhatsApp/Instagram) e recarregue.');
-    }, 25000);
   </script>
 </body>
 </html>
