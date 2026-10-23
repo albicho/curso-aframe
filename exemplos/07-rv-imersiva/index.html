@@ -15,19 +15,44 @@
    • hand-tracking-grab-controls + grabbable: pegar objetos com a mão (gesto de pinça).
    • environment (componente da comunidade): ambientes prontos com uma linha.
    • Desempenho: acrescente ?stats ao endereço para ver FPS, draw calls e triângulos.
+
+  ------------------------------------------------------------
+  NOTAS DESTA VERSÃO COMENTADA (o código é o mesmo do original)
+  ------------------------------------------------------------
+  • Estrutura da cena, de cima para baixo:
+      a-assets (arquivos pré-carregados) → mixins (estilos reutilizáveis)
+      → ambiente → RIG (usuário) → discos de teletransporte
+      → mesa com objetos agarráveis → ponto de interesse → painel de instruções.
+  • A-Frame é "entidade + componentes": cada atributo (position, material,
+    animation...) é um componente; "a-box", "a-sphere" etc. são atalhos
+    ("primitivos") que já vêm com geometria e material configurados.
+  • Unidades: 1 unidade = 1 metro. Rotação em graus. Eixos: X direita,
+    Y para cima, Z para TRÁS (a frente do usuário é o Z negativo).
+  • Para rodar no Meta Quest: abra a página (em HTTPS) no Navegador Meta Quest
+    e toque no botão "VR" no canto inferior direito da página.
   ============================================================
 -->
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
+  <!-- Ajusta a largura da página ao celular (sem zoom inicial) -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>07 · RV imersiva — Curso A-Frame</title>
+
+  <!-- Núcleo do A-Frame 1.8.0 (inclui WebXR, hand-tracking-grab-controls, grabbable e obb-collider) -->
   <script src="https://aframe.io/releases/1.8.0/aframe.min.js"></script>
+
   <!-- Componentes da comunidade (sempre DEPOIS do A-Frame) -->
+  <!-- aframe-extras.controls: movement-controls, checkpoint-controls, keyboard/gamepad/trackpad/touch-controls -->
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.7.0/dist/aframe-extras.controls.min.js"></script>
+  <!-- aframe-extras.misc: utilidades diversas; aqui, é o que fornece o componente "checkpoint" (destino do teletransporte) -->
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.7.0/dist/aframe-extras.misc.min.js"></script>
+  <!-- aframe-environment-component: gera cenários procedurais (floresta, deserto, etc.) a partir de "presets" -->
   <script src="https://cdn.jsdelivr.net/npm/aframe-environment-component@1.5.0/dist/aframe-environment-component.min.js"></script>
+
   <style>
+    /* Botão HTML fixo no canto superior esquerdo, que volta ao índice do curso.
+       Fica sobre o canvas 3D; dentro do óculos ele não aparece (só existe na tela 2D). */
     .voltar { position: fixed; top: 12px; left: 12px; z-index: 10; font: 600 14px system-ui, sans-serif;
               background: rgba(17,24,39,.85); color: #fff; padding: 8px 12px; border-radius: 8px; text-decoration: none; }
   </style>
@@ -35,67 +60,131 @@
 <body>
   <a class="voltar" href="../../index.html">← Índice do curso</a>
 
+  <!--
+    <a-scene> é a raiz do mundo 3D: cria o canvas, o renderizador e o loop de animação.
+    Seus atributos são COMPONENTES DE CENA:
+
+    • xr-mode-ui="XRMode: vr"
+        Controla os botões de entrar em XR. XRMode: vr mostra só o botão "VR"
+        (outras opções: ar | xr, que mostra VR e AR). Também existem
+        enabled (true/false), enterVRButton e enterARButton (seletores de botões próprios).
+    • renderer="antialias: true; foveationLevel: 1"
+        antialias suaviza serrilhados. foveationLevel (0 a 1) reduz a resolução
+        na periferia do olhar para ganhar FPS no óculos (1 = economia máxima).
+        Outros parâmetros: highRefreshRate (90/120 Hz), multiviewStereo, exposure,
+        toneMapping, maxCanvasWidth/maxCanvasHeight, logarithmicDepthBuffer.
+    • cursor="rayOrigin: mouse"
+        Converte raios em eventos de interação (click, mouseenter, mouseleave).
+        rayOrigin: mouse faz o raio sair do ponteiro do mouse (PC) ou do toque (celular).
+        Outros parâmetros: fuse, fuseTimeout, upEvents/downEvents, rayOrigin: entity | xrselect.
+    • raycaster="objects: .clicavel"
+        Limita o raio aos elementos com a classe "clicavel" (mais leve que testar a cena inteira).
+        Outros parâmetros: far, near, interval, origin, direction, showLine, lineColor.
+    • obb-collider="showColliders: false"
+        Caixas de colisão orientadas, usadas pelo sistema de "pegar" (grabbable) para
+        detectar a mão sobre o objeto. showColliders: true as desenha (útil para depurar).
+  -->
   <a-scene xr-mode-ui="XRMode: vr" renderer="antialias: true; foveationLevel: 1"
            cursor="rayOrigin: mouse" raycaster="objects: .clicavel"
            obb-collider="showColliders: false">
 
+    <!-- Arquivos pré-carregados: a cena só começa depois que tudo aqui chega.
+         Parâmetros: timeout (ms, padrão 3000). Aceita também <img>, <audio> e <video>. -->
     <a-assets>
+      <!-- Modelo 3D glTF binário; é referenciado depois como "#astronauta" -->
       <a-asset-item id="astronauta" src="../../assets/modelos/astronauta.glb"></a-asset-item>
     </a-assets>
 
+    <!-- MIXINS: conjuntos de atributos reutilizáveis. A entidade que usa mixin="nome"
+         recebe todos eles; o que estiver escrito na própria entidade vence o mixin. -->
+
+    <!-- "rotulo": estilo padrão dos textos (fonte SDF em português, centralizado, branco, 2,4 m de largura) -->
     <a-mixin id="rotulo" text="font: ../../assets/fontes/dejavu-pt-sdf.json; align: center; width: 2.4; color: #FFFFFF"></a-mixin>
-    <!-- Disco de teletransporte (checkpoint) -->
+
+    <!-- Disco de teletransporte (checkpoint): cilindro azul achatado e translúcido.
+         As duas animações mudam a opacidade quando o laser/mouse entra ou sai do disco
+         (eventos mouseenter e mouseleave, gerados pelo componente cursor). -->
     <a-mixin id="disco" geometry="primitive: cylinder; radius: 0.45; height: 0.04"
              material="color: #38BDF8; opacity: 0.6; transparent: true; emissive: #0EA5E9; emissiveIntensity: 0.6"
              animation__realce="property: material.opacity; to: 0.95; dur: 150; startEvents: mouseenter"
              animation__normal="property: material.opacity; to: 0.6; dur: 150; startEvents: mouseleave"></a-mixin>
 
-    <!-- 1) Ambiente pronto. Experimente: forest, japan, tron, egypt, dream, starry, volcano… -->
+    <!-- 1) Ambiente pronto. Experimente: forest, japan, tron, egypt, dream, starry, volcano…
+         preset: o cenário base. dressingAmount: quantidade de objetos decorativos (árvores, pedras).
+         shadow: true liga sombras. lightPosition: posição do "sol".
+         Outros parâmetros: seed, skyType, skyColor, horizonColor, fog, ground, groundColor,
+         groundTexture, dressing, dressingColor, grid, playArea, lighting. -->
     <a-entity environment="preset: forest; dressingAmount: 60; shadow: true; lightPosition: 1 3 -1"></a-entity>
 
-    <!-- 2) O RIG: tudo que é "o usuário" fica aqui dentro -->
+    <!-- 2) O RIG: tudo que é "o usuário" fica aqui dentro.
+         Mover o rig move câmera e controles juntos. Começa 3 m "para trás" (z = 3).
+         • movement-controls: junta vários esquemas de movimento. "controls" é a lista deles;
+           speed é a velocidade (padrão 0.3). Também: fly (voar), enabled, constrainToNavMesh, camera.
+         • checkpoint-controls: faz o rig ir até o disco clicado. mode: teleport (instantâneo) ou
+           animate (desliza). animateSpeed: velocidade do deslize. -->
     <a-entity id="rig" position="0 0 3"
               movement-controls="controls: checkpoint, gamepad, trackpad, keyboard, touch; speed: 0.15"
               checkpoint-controls="mode: animate; animateSpeed: 6">
-      <!-- A câmera fica 1,6 m acima do chão (altura média dos olhos) -->
+      <!-- A câmera fica 1,6 m acima do chão (altura média dos olhos).
+           No óculos, a posição real é dada pelo rastreamento da cabeça.
+           look-controls permite girar a vista com mouse (arrastar) ou giroscópio do celular. -->
       <a-entity id="camera" camera position="0 1.6 0" look-controls>
-        <!-- Cursor de olhar para celular / Cardboard -->
+        <!-- Cursor de olhar para celular / Cardboard: fica na frente da câmera e dispara
+             o clique se você fixar o olhar por 1500 ms (fuse-timeout). -->
         <a-cursor raycaster="objects: .clicavel" fuse-timeout="1500" color="#FFFFFF"></a-cursor>
       </a-entity>
-      <!-- Controles dos óculos: raio laser em cada mão -->
+      <!-- Controles dos óculos: raio laser em cada mão.
+           hand: left ou right. O raycaster aqui limita o alvo a ".clicavel", alcance de 30 m e linha azul. -->
       <a-entity laser-controls="hand: left"  raycaster="objects: .clicavel; far: 30; lineColor: #38BDF8"></a-entity>
       <a-entity laser-controls="hand: right" raycaster="objects: .clicavel; far: 30; lineColor: #38BDF8"></a-entity>
-      <!-- Rastreamento de mãos (Quest): pinça para pegar objetos "grabbable" -->
+      <!-- Rastreamento de mãos (Quest): pinça para pegar objetos "grabbable".
+           hoverEnabled: true destaca o objeto quando a mão chega perto.
+           Requer ativar "Rastreamento de mãos" nas configurações do Quest. -->
       <a-entity hand-tracking-grab-controls="hand: left;  hoverEnabled: true"></a-entity>
       <a-entity hand-tracking-grab-controls="hand: right; hoverEnabled: true"></a-entity>
     </a-entity>
 
-    <!-- 3) Pontos de teletransporte: aponte (laser/olhar/mouse) e clique -->
+    <!-- 3) Pontos de teletransporte: aponte (laser/olhar/mouse) e clique.
+         class="clicavel" → entra na lista do raycaster. mixin="disco" → aparência.
+         checkpoint → marca o disco como destino. y = 0.02 evita "piscar" por sobreposição ao chão. -->
     <a-entity class="clicavel" mixin="disco" checkpoint position="0 0.02 0"></a-entity>
     <a-entity class="clicavel" mixin="disco" checkpoint position="-4 0.02 -4"></a-entity>
     <a-entity class="clicavel" mixin="disco" checkpoint position="4 0.02 -4"></a-entity>
     <a-entity class="clicavel" mixin="disco" checkpoint position="0 0.02 -8"></a-entity>
 
-    <!-- 4) Mesa com objetos que podem ser PEGOS com a mão (Quest com hand tracking) -->
+    <!-- 4) Mesa com objetos que podem ser PEGOS com a mão (Quest com hand tracking).
+         O <a-entity> externo é só um grupo: a posição dos filhos é relativa a ele. -->
     <a-entity position="0 0 -1.2">
+      <!-- Tampo da mesa: caixa de 1,4 × 0,8 × 0,6 m. shadow: cast projeta e receive recebe sombra. -->
       <a-box position="0 0.4 0" width="1.4" height="0.8" depth="0.6" color="#8B5E3C" shadow="cast: true; receive: true"></a-box>
+      <!-- grabbable: permite pegar com a pinça. Estes objetos NÃO têm física:
+           ao soltar, ficam flutuando onde foram deixados (não caem). Para cair, use um sistema de física. -->
       <a-box grabbable position="-0.45 0.9 0" width="0.12" height="0.12" depth="0.12" color="#EF4444" shadow="cast: true"></a-box>
       <a-box grabbable position="-0.15 0.9 0" width="0.12" height="0.12" depth="0.12" color="#22C55E" shadow="cast: true"></a-box>
       <a-sphere grabbable position="0.15 0.9 0" radius="0.07" color="#3B82F6" shadow="cast: true"></a-sphere>
+      <!-- Cone: radius-top = 0 faz a ponta; radius-bottom é a base -->
       <a-cone grabbable position="0.45 0.92 0" radius-bottom="0.07" radius-top="0" height="0.16" color="#F59E0B" shadow="cast: true"></a-cone>
+      <!-- Texto acima da mesa (usa o mixin "rotulo"; só o "value" é escrito aqui) -->
       <a-entity mixin="rotulo" position="0 1.25 0" text="value: Quest: use as mãos (pinça) para pegar os objetos"></a-entity>
     </a-entity>
 
-    <!-- 5) Um "ponto de interesse" para visitar com o teletransporte -->
+    <!-- 5) Um "ponto de interesse" para visitar com o teletransporte (fica ao lado do disco z = -8) -->
     <a-entity position="0 0 -9.5">
+      <!-- Modelo glTF do astronauta. A escala 0.025 faz o modelo (que tem ~74 unidades de altura)
+           ficar com ~1,85 m. position y = 0.93 põe os pés no chão (metade da altura).
+           animation: gira 360° em 20 s, sem parar (loop: true, easing: linear). -->
       <a-entity gltf-model="#astronauta" scale="0.025 0.025 0.025" position="0 0.93 0" shadow="cast: true"
                 animation="property: rotation; to: 0 360 0; loop: true; dur: 20000; easing: linear"></a-entity>
       <a-entity mixin="rotulo" position="0 2.2 0" text="value: Teletransporte até aqui pelos discos azuis"></a-entity>
     </a-entity>
 
-    <!-- Painel de instruções -->
+    <!-- Painel de instruções: um plano escuro translúcido com texto por cima.
+         rotation="0 35 0" vira o painel para o usuário. -->
     <a-entity position="-1.8 1.7 0.5" rotation="0 35 0">
       <a-plane width="1.6" height="1" material="color: #0F172A; opacity: 0.85; transparent: true"></a-plane>
+      <!-- position z = 0.01 afasta o texto 1 cm do plano (evita sobreposição).
+           O "\n" vira quebra de linha. Depois do ";" vêm outras propriedades do texto
+           (width, align, anchor), que sobrescrevem as do mixin "rotulo". -->
       <a-entity mixin="rotulo" position="0 0 0.01"
                 text="value: COMO NAVEGAR\n\nPC: W A S D + arrastar o mouse\nCelular: toque para andar · gire o aparelho\nÓculos: analógico ou laser nos discos azuis\n\nAcrescente ?stats ao endereço; width: 1.5; align: left; anchor: center"></a-entity>
     </a-entity>
@@ -103,6 +192,7 @@
 
   <script>
     // Liga o painel de desempenho se o endereço contiver "?stats"
+    // (ex.: .../index.html?stats). O componente "stats" mostra FPS, draw calls e triângulos.
     if (location.search.indexOf('stats') !== -1) {
       document.querySelector('a-scene').setAttribute('stats', '');
     }
